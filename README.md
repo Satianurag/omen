@@ -48,27 +48,49 @@ Built for [Agents of SigNoz](https://www.wemakedevs.org/hackathons/signoz) (Trac
 
 ## Install
 
+**Prerequisites:** Python 3.12+, [uv](https://docs.astral.sh/uv/), Docker (for SigNoz Foundry), and [k6](https://grafana.com/docs/k6/latest/set-up/install-k6/) **2.0+** on your `PATH`.
+
 ```bash
 uv sync
 ```
+
+After sync, run CLI commands as `uv run omen …` (or activate `.venv` so bare `omen` works). omen is not installed globally by `uv sync` alone.
 
 omen drives k6 through the [Grafana k6 MCP server](https://github.com/grafana/mcp-k6) and reads
 SigNoz through the [official SigNoz MCP server](https://signoz.io/docs/ai/signoz-mcp-server). Full
 setup: [`docs/SIGNOZ_SETUP.md`](docs/SIGNOZ_SETUP.md).
 
 ```bash
-foundryctl cast -f casting.yaml   # SigNoz + OTLP + MCP (see docs/SIGNOZ_SETUP.md)
-cp .env.example .env              # set OMEN_SIGNOZ_API_KEY
+foundryctl cast -f casting.yaml   # SigNoz UI :8080, OTLP :4317, MCP :8000/mcp
+cp .env.example .env              # PowerShell: Copy-Item .env.example .env
+# Edit .env: set OMEN_SIGNOZ_API_KEY and GEMINI_API_KEY (key alone on each line — no trailing comments)
+```
+
+Install k6 2.0+, then warm the MCP extension cache:
+
+```bash
+# macOS (Homebrew):
+brew install k6
+# Windows: install from https://grafana.com/docs/k6/latest/set-up/install-k6/ (or scoop/choco), ensure k6 is on PATH
+# Linux: see k6 docs, or use Docker only if host networking reaches 127.0.0.1 (see below)
+
+uv run omen warm-k6
+```
+
+`.env.example` defaults to local k6 (`OMEN_K6_CMD=k6 x mcp`). That is the supported path on **Windows and macOS**.
+
+- **Do not set `OMEN_K6_DOCKER=1` on Windows** — Docker `--network host` cannot reach demo apps on `127.0.0.1`.
+- On Linux only, you may set `OMEN_K6_DOCKER=1` so the container uses host networking to hit local demos.
+- Standalone binary alternative: `OMEN_K6_CMD=mcp-k6`.
+
+Optional: install extra OpenTelemetry instrumentors. `uv sync` already pulls FastAPI + OTLP packages used by the demos; bootstrap needs `pip` in the venv:
+
+```bash
+uv run python -m ensurepip --upgrade   # uv venvs often omit pip
 uv run opentelemetry-bootstrap --action=install
 ```
 
-```bash
-brew install k6 && omen warm-k6   # install k6 2.0+; warms the extension cache on first use
-# alternatives: standalone binary (OMEN_K6_CMD=mcp-k6) or Docker (OMEN_K6_DOCKER=1)
-```
-
-The SigNoz step is optional: without `OMEN_SIGNOZ_API_KEY`, omen
-skips correlation and runs k6-only. Model backend: see [Configuration](#configuration).
+The SigNoz step is optional: without `OMEN_SIGNOZ_API_KEY`, omen skips correlation and runs k6-only. Model backend: see [Configuration](#configuration).
 
 ## Quickstart
 
@@ -76,9 +98,10 @@ The fastest first success needs no SigNoz, k6, or model. It runs the whole state
 fakes:
 
 ```bash
-uv run pytest        # the full workflow against Theodosia's FakeUpstream and a fake model
-omen render         # print the state machine
-omen arcana         # the tarot spread, one card per phase
+uv run pytest                 # full workflow against FakeUpstream + fake model
+uv run omen render            # print the state machine
+uv run omen arcana            # the tarot spread, one card per phase
+uv run omen doctor --runtime  # graph + runtime tool shape
 ```
 
 For a full live run against a bundled demo app (starts the app under `opentelemetry-instrument`, drives real k6, queries live
@@ -86,9 +109,10 @@ SigNoz, writes the grounded analysis):
 
 ```bash
 uv run python scripts/verify_scenario.py petclinic   # or storefront | feed | gateway | orders
+# ports: petclinic 8400 · storefront 8401 · feed 8402 · gateway 8403 · orders 8404
 ```
 
-For a recorded demo (terminal cast → GIF for README):
+For a recorded demo (terminal cast → GIF; **Linux/macOS** with bash, asciinema, and related tools — not a Windows PowerShell path):
 
 ```bash
 ./scripts/record_demo_cast.sh   # asciinema + agg → docs/assets/omen-run.gif
@@ -100,20 +124,32 @@ For a recorded demo (terminal cast → GIF for README):
 Inspect and serve the workflow:
 
 ```bash
-omen doctor --runtime     # validate the graph and runtime tool shape
-omen render               # print the state machine
-omen serve                # mount as an MCP server over stdio (both upstreams wired in)
+uv run omen doctor --runtime     # validate the graph and runtime tool shape
+uv run omen render               # print the state machine
+uv run omen serve                # mount as an MCP server over stdio (both upstreams wired in)
 ```
 
-Drive it locally, no cloud agent. `omen pilot` lets a local open model drive the FSM step by step:
-it reads the reachable actions and calls `step` for each phase itself, doing the per-phase work as it
-goes (the `screen` phase hands off to an independent auditor). Driver, writer, and auditor are all
-the local model:
+Drive it locally with `omen pilot`. The driver depends on `OMEN_LLM`:
+
+- **`ollama`** — a local open model (e.g. Granite) reads reachable actions and calls `step` each turn.
+- **`gemini` / `anthropic` / `claude_agent`** — the same governed MCP FSM is walked; that backend authors, correlates, analyzes, and screens.
+
+Start a demo app first (or use `verify_scenario.py`, which starts it for you). Runnable demos live under `examples/petclinic` (and storefront / feed / gateway / orders), **not** `examples/petstore` (OpenAPI-only fixture for unit tests).
 
 ```bash
-omen pilot --intent "load test the pet listing endpoint" \
-  --repo-path examples/petstore --target-base-url http://localhost:8000 --signoz-service petclinic
-# or diff mode: omen pilot --repo-path /path/to/repo --ref HEAD~1 --signoz-service petclinic
+# terminal 1 — instrumented demo
+uv run opentelemetry-instrument python examples/petclinic/app.py serve
+
+# terminal 2 — intent mode (Gemini when OMEN_LLM=gemini)
+uv run omen pilot \
+  --intent "load test recording a new visit" \
+  --repo-path examples/petclinic \
+  --target-base-url http://localhost:8400 \
+  --signoz-service petclinic
+
+# or diff mode against a repo with two commits that change an endpoint:
+# uv run omen pilot --repo-path /path/to/repo --ref HEAD~1 \
+#   --target-base-url http://localhost:8400 --signoz-service petclinic
 ```
 
 Run it in the background, triggered on diff detection. `omen watch` polls a repo's git HEAD and,
@@ -121,34 +157,38 @@ when a new commit changes an HTTP endpoint, drives the whole workflow in diff mo
 change, then prints the verdict and a proposed fix and publishes the run to SigNoz over OTLP:
 
 ```bash
-omen watch --repo-path /path/to/repo --target-base-url http://localhost:8000 --signoz-service petclinic
-# one-shot for a post-commit hook or CI: omen watch --once --repo-path . --target-base-url ...
+uv run omen watch --repo-path /path/to/repo \
+  --target-base-url http://localhost:8400 --signoz-service petclinic
+# one-shot for a post-commit hook or CI:
+# uv run omen watch --once --repo-path . --target-base-url http://localhost:8400 --signoz-service petclinic
 ```
 
 Or drive it from Claude Code (or any MCP client) by registering the server:
 
 ```bash
-claude mcp add --scope=user --transport=stdio omen -- omen serve
+claude mcp add --scope=user --transport=stdio omen -- uv run omen serve
 ```
 
 Then ask the agent to run the workflow with the `step` tool, for example:
-"Use the omen step tool. Load test the pet listing endpoint against
-http://localhost:8000; the spec is under examples/petstore; correlate with SigNoz
+"Use the omen step tool. Load test recording a new visit against
+http://localhost:8400; the app and OpenAPI are under examples/petclinic; correlate with SigNoz
 service petclinic."
 
 The entry inputs for `select_mode`:
 
-- diff mode: `{"repo_path": "/path/to/repo", "ref": "HEAD~1", "target_base_url": "http://localhost:8000", "signoz_service": "petclinic"}`
-- intent mode: `{"repo_path": "/path/with/openapi.json", "intent": "load test the checkout endpoint", "target_base_url": "...", "signoz_service": "petclinic"}`
+- diff mode: `{"repo_path": "/path/to/repo", "ref": "HEAD~1", "target_base_url": "http://localhost:8400", "signoz_service": "petclinic"}`
+- intent mode: `{"repo_path": "examples/petclinic", "intent": "load test recording a new visit", "target_base_url": "http://localhost:8400", "signoz_service": "petclinic"}`
 
-Review recorded runs:
+Review recorded runs (best after `omen pilot` / MCP `step`, which writes a full hash-chained ledger):
 
 ```bash
-omen sessions ls
-omen sessions show <app-id>
-omen logs <app-id> --refusals
-omen verify <app-id>        # confirm the ledger has not been tampered with
+uv run omen sessions ls
+uv run omen sessions show <app-id>
+uv run omen logs <app-id> --refusals
+uv run omen verify <app-id>        # confirm the ledger has not been tampered with
 ```
+
+`scripts/verify_scenario.py` is the fastest live k6+SigNoz check; it uses Burr `arun` and may not show the same multi-step ledger listing as `omen pilot`. Use pilot when you need `omen verify` for the demo.
 
 ## Configuration
 
@@ -159,22 +199,23 @@ omen verify <app-id>        # confirm the ledger has not been tampered with
 | `GEMINI_API_KEY` | unset | Gemini API key (for `OMEN_LLM=gemini`) |
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama endpoint (for `OMEN_LLM=ollama`) |
 | `ANTHROPIC_API_KEY` | unset | Claude API key (for `OMEN_LLM=anthropic`) |
-| `OMEN_K6_CMD` | `k6 x mcp` | command line for the k6 MCP server (set to `mcp-k6` for the standalone binary) |
-| `OMEN_K6_DOCKER` | unset | if set, run the k6 MCP server via Docker |
+| `OMEN_GUARDIAN` | unset | set to enable the independent groundedness screen |
+| `OMEN_K6_CMD` | `k6 x mcp` | command line for the local k6 MCP server (or `mcp-k6`) |
+| `OMEN_K6_DOCKER` | unset | if set, run the k6 MCP via Docker (**Linux host-network only**; avoid on Windows) |
 | `OMEN_K6_IMAGE` | `grafana/mcp-k6:latest` | Docker image when `OMEN_K6_DOCKER` is set |
 | `OMEN_SIGNOZ_URL` | `http://localhost:8080` | SigNoz API base URL |
 | `OMEN_SIGNOZ_API_KEY` | unset | service-account API key (`SIGNOZ-API-KEY` header) |
+| `OMEN_SIGNOZ_FLUSH_SEC` | unset | seconds to wait after k6 before SigNoz correlate |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | OTLP endpoint for omen + demo app traces (e.g. `http://localhost:4317`) |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | OTLP transport |
 | `THEODOSIA_HOME` | `~/.omen` | ledger / session store |
+| `THEODOSIA_LEDGER_KEY` | unset | optional HMAC key so `omen verify` reports HMAC-keyed integrity |
 
-`omen serve` loads these from a `.env` in the project root if present (see
+`omen` / `omen serve` load these from a `.env` in the project root if present (see
 `.env.example`); real environment variables take precedence. Keep `.env` out of git
-(it is git-ignored) since the token is a credential.
+(it is git-ignored) since keys are credentials. Use the filename `.env` — not `.env.txt`.
 
-When running the k6 server in Docker with `OMEN_K6_DOCKER=1`, omen uses `--network host` so the
-container can reach demo apps on `127.0.0.1:<port>`.
-
+When `OMEN_K6_DOCKER=1` (Linux), omen uses `--network host` so the container can reach demo apps on `127.0.0.1:<port>`.
 ## How it works
 
 ```mermaid
@@ -221,7 +262,7 @@ stateDiagram-v2
 
 ## The Major Arcana
 
-Each phase is a card the agent turns. Run `omen arcana` for the full spread.
+Each phase is a card the agent turns. Run `uv run omen arcana` for the full spread.
 
 | Card | Phase | Omen |
 | --- | --- | --- |
@@ -246,16 +287,17 @@ Each phase is a card the agent turns. Run `omen arcana` for the full spread.
 
 ## Demo scenarios
 
-`examples/` ships five target apps, each a healthy baseline plus one "new" endpoint with a
+`examples/` ships five **runnable** target apps, each a healthy baseline plus one "new" endpoint with a
 distinct load-induced failure. Each runs under `opentelemetry-instrument` and exports traces to SigNoz.
+(`examples/petstore` is an OpenAPI-only fixture for offline tests — it has no `app.py`.)
 
-| App | New endpoint | Failure signature | What it exercises |
-| --- | --- | --- | --- |
-| `petclinic` | `POST /api/visits` | 5xx, constant, `database is locked` | correlation isolates the root-cause error |
-| `storefront` | `POST /api/checkout` | latency, **0 errors** (N+1 over a shared connection) | server-side latency invisible to the client error rate |
-| `feed` | `POST /api/events` | latency **rising over the run** (unbounded recompute) | `detect_anomalies` catches the trend |
-| `gateway` | `GET /api/quote` | **4xx** 429 throttling (too-tight rate limit) | client-vs-server error split: "throttled, not broken" |
-| `orders` | `POST /api/order` | latency **+ 504 mix** (downstream cascade) | dependency root cause, resilience recommendation |
+| App | Port | New endpoint | Failure signature | What it exercises |
+| --- | --- | --- | --- | --- |
+| `petclinic` | 8400 | `POST /api/visits` | 5xx, constant, `database is locked` | correlation isolates the root-cause error |
+| `storefront` | 8401 | `POST /api/checkout` | latency, **0 errors** (N+1 over a shared connection) | server-side latency invisible to the client error rate |
+| `feed` | 8402 | `POST /api/events` | latency **rising over the run** (unbounded recompute) | `detect_anomalies` catches the trend |
+| `gateway` | 8403 | `GET /api/quote` | **4xx** 429 throttling (too-tight rate limit) | client-vs-server error split: "throttled, not broken" |
+| `orders` | 8404 | `POST /api/order` | latency **+ 504 mix** (downstream cascade) | dependency root cause, resilience recommendation |
 
 ```bash
 uv run python scripts/verify_scenario.py petclinic   # or storefront | feed | gateway | orders
@@ -274,9 +316,12 @@ they run offline with no k6, SigNoz, Gemini, or network.
 
 ### Windows
 
+- **CLI:** use `uv run omen …` (or `.venv\Scripts\Activate.ps1` then `omen`).
 - **Terminal encoding:** `omen` and `scripts/capture_run.py` reconfigure stdout to UTF-8 so the tarot sigil (`🂠`) does not crash default `cp1252` consoles. Windows Terminal is recommended; alternatively set `PYTHONIOENCODING=utf-8`.
-- **k6:** prefer local k6 2.0+ (`OMEN_K6_CMD=k6 x mcp`) over `OMEN_K6_DOCKER=1` — Docker `--network host` cannot reach demo apps on `127.0.0.1` on Windows.
-- **Config:** copy `.env.example` to `.env` (not `.env.txt`); `omen` loads `.env` only.
+- **k6:** install a local k6 2.0+ binary; set `OMEN_K6_CMD=k6 x mcp`. **Do not** set `OMEN_K6_DOCKER=1` — Docker `--network host` cannot reach demo apps on `127.0.0.1` on Windows.
+- **Config:** `Copy-Item .env.example .env` (filename must be `.env`, not `.env.txt`).
+- **OTel bootstrap:** if `opentelemetry-bootstrap` fails with `No module named pip`, run `uv run python -m ensurepip --upgrade` first, or skip it — `uv sync` already installs the FastAPI instrumentation demos need.
+- **Demo GIFs:** `scripts/record_demo*.sh` need bash/WSL; for local rehearsal use `uv run python scripts/verify_scenario.py petclinic` or `uv run omen pilot …`.
 
 ## License
 

@@ -178,7 +178,10 @@ def main() -> int:
         repo_path: str = typer.Option("", help="repo for diff mode (and where openapi.json lives)"),
         ref: str = typer.Option("HEAD~1", help="diff base ref"),
         intent: str = typer.Option("", help="natural-language intent (intent mode)"),
-        target_base_url: str = typer.Option("http://localhost:8000", help="target service base URL"),
+        target_base_url: str = typer.Option(
+            "http://localhost:8400",
+            help="target service base URL (petclinic demo defaults to :8400)",
+        ),
         signoz_service: str = typer.Option("petclinic", help="OTEL_SERVICE_NAME of the target in SigNoz"),
         model: str = typer.Option(
             "",
@@ -190,7 +193,8 @@ def main() -> int:
         When ``OMEN_LLM`` is ``ollama`` (or unset), a local Granite model drives the FSM via
         ``drive_granite``: it reads reachable actions and calls ``step`` each turn. For all other
         backends (``gemini``, ``anthropic``, ``claude_agent``), the same governed FSM is walked
-        with Burr's executor and the configured model authors, correlates, analyses and screens.
+        through the mounted MCP ``step`` tool so the ledger is sealed; the configured model authors,
+        correlates, analyses and screens inside each phase.
         """
         repo = str(Path(repo_path).resolve()) if repo_path else ""
         inputs = {"target_base_url": target_base_url, "signoz_service": signoz_service}
@@ -361,7 +365,10 @@ def main() -> int:
     @cli.command("watch")
     def watch(
         repo_path: str = typer.Option(".", help="git repo to guard"),
-        target_base_url: str = typer.Option("http://localhost:8000", help="target service base URL"),
+        target_base_url: str = typer.Option(
+            "http://localhost:8400",
+            help="target service base URL (petclinic demo defaults to :8400)",
+        ),
         signoz_service: str = typer.Option("petclinic", help="OTEL_SERVICE_NAME of the target in SigNoz"),
         interval: float = typer.Option(10.0, help="seconds between git-HEAD polls"),
         once: bool = typer.Option(False, help="diagnose the current HEAD once, then exit"),

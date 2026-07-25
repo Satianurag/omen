@@ -101,7 +101,7 @@ And the service overview shows the load spikes from the k6 runs as clear humps i
 
 This was the interesting part for Track 01. omen does not scrape the UI. It talks to the official SigNoz MCP server during the run.
 
-On a real petclinic diff-mode run (Gemini backend, local k6), the phase stream looked like this:
+On a real petclinic run (Gemini backend, local k6 MCP, SigNoz correlate), the phase stream looked like this:
 
 ![omen pilot correlate run](./assets/shot-correlate.png)
 
@@ -141,19 +141,31 @@ Also: every stepped phase went through Theodosia’s mounted MCP `step` tool, so
 
 ## Gotchas I only learned by breaking things
 
-These are the details docs won’t give you:
+These are the details that bit me on a fresh clone:
 
 **Windows + Docker k6 is a trap.**  
-`OMEN_K6_DOCKER=1` with `--network host` cannot reach `127.0.0.1` demo apps on Windows. Local `k6 x mcp` worked. Put that in `.env` early.
+`OMEN_K6_DOCKER=1` with `--network host` cannot reach `127.0.0.1` demo apps on Windows. Local `k6 x mcp` worked. Put `OMEN_K6_CMD=k6 x mcp` in `.env` and leave Docker k6 off.
 
-**`omen pilot` ≠ Gemini by default.**  
+**`uv run omen`, not bare `omen`.**  
+After `uv sync`, the `omen` entrypoint lives in `.venv`. Use `uv run omen …` (or activate the venv). Same for pytest and scripts.
+
+**`opentelemetry-bootstrap` needs pip in a uv venv.**  
+`uv run opentelemetry-bootstrap --action=install` failed here with `No module named pip`. Fix with `uv run python -m ensurepip --upgrade`, or skip it — `uv sync` already installs FastAPI + OTLP packages the demos need.
+
+**Runnable demos are on 8400–8404, not `:8000` / `petstore`.**  
+`examples/petclinic` serves `http://localhost:8400`. `examples/petstore` is OpenAPI-only (unit tests). SigNoz MCP itself is on `:8000/mcp` — don’t confuse that with the app port.
+
+**`omen pilot` ≠ Gemini by default (until I fixed it).**  
 Phase workers already respected `OMEN_LLM=gemini`. The pilot *driver* still assumed Ollama/Granite. I fixed the non-Ollama path to walk the same mounted MCP server deterministically so Gemini runs still seal the ledger. Banner now says `Gemini is reading.` (honest: Burr/MCP walks the graph; Gemini authors the work inside phases).
 
 **Bypassing `mount()` drops your ledger.**  
-Calling `build_application().arun()` directly gave me `log.jsonl` without `ledger.jsonl`. `omen verify` then said “no ledger.” Driving through `step` fixed it.
+Calling `build_application().arun()` (what `verify_scenario.py` uses for a fast live check) can leave you with a thin or empty multi-step ledger listing. Driving through MCP `step` via `omen pilot` writes a real `ledger.jsonl` that `omen verify` can HMAC-check. Use verify_scenario to prove k6+SigNoz; use pilot when you need the audited session story.
 
 **SigNoz API keys hate trailing comments.**  
 `OMEN_SIGNOZ_API_KEY=.... # note` broke auth. Key alone on the line.
+
+**Filename must be `.env`, not `.env.txt`.**  
+Windows “Save as text” bit me once. omen only loads `.env`.
 
 ---
 
@@ -164,6 +176,7 @@ Calling `build_application().arun()` directly gave me `log.jsonl` without `ledge
 3. Prefer MCP tools that return structured aggregates (`signoz_aggregate_traces`) before you drown in individual spans.
 4. Keep the agent’s own walk on OTLP. Judges (and future-you) can see whether the FSM actually ran.
 5. Demo a failure k6 alone can’t explain cleanly. `database is locked` from traces beats “high error rate” from a client report.
+6. On Windows, never start from `OMEN_K6_DOCKER=1` — local k6 first.
 
 ---
 
@@ -172,19 +185,31 @@ Calling `build_application().arun()` directly gave me `log.jsonl` without `ledge
 ```powershell
 cd omen
 foundryctl cast -f casting.yaml
-# .env: OMEN_SIGNOZ_API_KEY, GEMINI_API_KEY, OMEN_LLM=gemini, OMEN_K6_CMD=k6 x mcp
+Copy-Item .env.example .env
+# Edit .env: OMEN_SIGNOZ_API_KEY, GEMINI_API_KEY, OMEN_LLM=gemini, OMEN_K6_CMD=k6 x mcp
+# Do NOT set OMEN_K6_DOCKER=1 on Windows
 uv sync
-uv run opentelemetry-bootstrap --action=install
+uv run omen warm-k6
+# optional (needs pip in the venv):
+# uv run python -m ensurepip --upgrade
+# uv run opentelemetry-bootstrap --action=install
 
-# terminal 1
+# Fastest live proof (starts petclinic :8400 for you):
+uv run python scripts/verify_scenario.py petclinic
+
+# Audited pilot path (full ledger) — terminal 1:
 $env:OTEL_SERVICE_NAME='petclinic'
 $env:OTEL_EXPORTER_OTLP_ENDPOINT='http://localhost:4317'
 $env:OTEL_EXPORTER_OTLP_PROTOCOL='grpc'
+$env:OTEL_TRACES_EXPORTER='otlp'
 uv run opentelemetry-instrument python examples/petclinic/app.py serve
 
-# terminal 2 — after you have a two-commit demo repo
-uv run omen pilot --repo-path . --ref HEAD~1 `
-  --target-base-url http://127.0.0.1:8400 --signoz-service petclinic
+# terminal 2 — intent mode (or --ref HEAD~1 against a two-commit demo repo)
+uv run omen pilot `
+  --intent "load test recording a new visit" `
+  --repo-path examples/petclinic `
+  --target-base-url http://127.0.0.1:8400 `
+  --signoz-service petclinic
 
 uv run omen sessions ls
 uv run omen verify <app-id>

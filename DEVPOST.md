@@ -39,7 +39,7 @@ Five demo apps simulate real failure modes invisible to k6 alone:
 ## Built with
 
 - Python 3.12, Burr, Theodosia, FastMCP
-- Grafana `mcp-k6` (Docker), SigNoz `signoz-mcp-server` v0.9
+- Grafana k6 MCP (`k6 x mcp` locally; Docker k6 only on Linux host-network), SigNoz `signoz-mcp-server`
 - Google GenAI SDK (`gemini-3.1-flash-lite`) for writer + Guardian screen
 - OpenTelemetry Python auto-instrumentation
 
@@ -47,15 +47,18 @@ Five demo apps simulate real failure modes invisible to k6 alone:
 
 ```bash
 foundryctl cast -f casting.yaml
-cp .env.example .env   # set OMEN_SIGNOZ_API_KEY, GEMINI_API_KEY
-uv sync && uv run opentelemetry-bootstrap --action=install
-uv run python scripts/verify_scenario.py petclinic
+cp .env.example .env   # set OMEN_SIGNOZ_API_KEY, GEMINI_API_KEY; keep OMEN_K6_CMD=k6 x mcp
+# Windows: do NOT set OMEN_K6_DOCKER=1
+uv sync
+uv run omen warm-k6
+uv run python scripts/verify_scenario.py petclinic   # petclinic on :8400
 ```
+
+Optional OTel bootstrap (uv venvs may need `uv run python -m ensurepip --upgrade` first). Full setup: `docs/SIGNOZ_SETUP.md`.
 
 ## Demo video
 
-Record a fresh cast with `./scripts/record_demo_cast.sh` (outputs `docs/assets/omen-run.cast` and SVG in `docs/assets/`).
-
+On Linux/macOS: `./scripts/record_demo_cast.sh` (outputs `docs/assets/omen-run.cast` / GIF). On Windows, rehearse with `uv run python scripts/verify_scenario.py petclinic` or `uv run omen pilot …`.
 ## Links
 
 - Repo: [github.com/Satianurag/omen](https://github.com/Satianurag/omen)

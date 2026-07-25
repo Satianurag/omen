@@ -11,7 +11,8 @@ omen orchestrates two MCP servers from one agent-driven state machine:
 
 Install / configure (see ``docs/SIGNOZ_SETUP.md``):
 
-    foundryctl cast -f casting.yaml   # SigNoz + MCP on :8080 / :4317 / :8000
+    foundryctl cast -f casting.yaml   # SigNoz UI :8080, OTLP :4317, SigNoz MCP :8000/mcp
+    # Demo apps: petclinic :8400 … orders :8404 (not the SigNoz MCP port)
 
     export OMEN_SIGNOZ_URL=http://localhost:8080
     export OMEN_SIGNOZ_API_KEY=<service-account-key>
