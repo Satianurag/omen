@@ -1,3 +1,4 @@
+<p align="center"><img src="docs/assets/cover.png" alt="omen: divines disaster, crafts the cure" width="820" /></p>
 
 # omen
 
