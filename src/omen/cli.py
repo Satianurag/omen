@@ -150,6 +150,7 @@ async def _diagnose_diff(repo: str, ref: str, target_base_url: str, signoz_servi
 
 
 def main() -> int:
+    arcana.configure_stdio_utf8()
     # Load OMEN_* / OLLAMA_* settings from a project .env (e.g. SigNoz API key).
     # Real environment variables already set take precedence.
     load_dotenv()

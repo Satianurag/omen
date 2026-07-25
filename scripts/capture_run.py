@@ -127,6 +127,7 @@ class _Narrator(PostRunStepHook):
 
 
 async def main() -> None:
+    arcana.configure_stdio_utf8()
     load_dotenv(ROOT / ".env")
     if not signoz_configured():
         print("SigNoz is not configured in .env (OMEN_SIGNOZ_API_KEY). Aborting.")

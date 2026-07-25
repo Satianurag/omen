@@ -262,6 +262,12 @@ uv run pytest
 The tests use Theodosia's `FakeUpstream` for both MCP servers and a fake LLM, so
 they run offline with no k6, SigNoz, Gemini, or network.
 
+### Windows
+
+- **Terminal encoding:** `omen` and `scripts/capture_run.py` reconfigure stdout to UTF-8 so the tarot sigil (`🂠`) does not crash default `cp1252` consoles. Windows Terminal is recommended; alternatively set `PYTHONIOENCODING=utf-8`.
+- **k6:** prefer local k6 2.0+ (`OMEN_K6_CMD=k6 x mcp`) over `OMEN_K6_DOCKER=1` — Docker `--network host` cannot reach demo apps on `127.0.0.1` on Windows.
+- **Config:** copy `.env.example` to `.env` (not `.env.txt`); `omen` loads `.env` only.
+
 ## License
 
 Apache-2.0. omen builds on Theodosia (Apache-2.0), Burr (Apache-2.0), the official

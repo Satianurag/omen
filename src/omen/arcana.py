@@ -7,6 +7,20 @@ a card at each step; ``omen arcana`` prints the full spread.
 
 from __future__ import annotations
 
+import sys
+
+
+def configure_stdio_utf8() -> None:
+    """Use UTF-8 on Windows consoles so the tarot sigil (🂠) does not crash cp1252."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8")
+            except Exception:
+                pass
+
+
 # Keyed by action name, in the order the agent draws them.
 ARCANA: dict[str, tuple[str, str, str]] = {
     "select_mode": ("0", "The Fool", "The querent sets out: diff or intent, the journey begins."),
