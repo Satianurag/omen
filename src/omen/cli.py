@@ -278,7 +278,10 @@ def main() -> int:
 
             state = asyncio.run(_walk())
             report = (state or {}).get("report") or {}
-            print(f"\n{_DIM}{arcana.SIGIL}  stopped on terminal, {walked} phases driven by {who}{_RESET}")
+            print(
+                f"\n{_DIM}{arcana.SIGIL}  stopped on terminal, {walked} phases walked by Burr, "
+                f"authored by {who}{_RESET}"
+            )
             verdict = report.get("verdict")
             if verdict:
                 print(f"{arcana.SIGIL}  {_BOLD}verdict:{_RESET} {_outcome_color(verdict)}{verdict}{_RESET}")
