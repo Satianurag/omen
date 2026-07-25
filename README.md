@@ -25,6 +25,14 @@ card per phase (`omen arcana` lays out the spread).
 
 Built for [Agents of SigNoz](https://www.wemakedevs.org/hackathons/signoz) (Track 01 · AI & Agent Observability). Setup: [`docs/SIGNOZ_SETUP.md`](docs/SIGNOZ_SETUP.md).
 
+### Screenshots
+
+| [state machine](docs/assets/shot-render.png) | [the major arcana](docs/assets/shot-arcana.png) |
+| --- | --- |
+| **omen render**: the full state machine, legal edges only | **omen arcana**: a card per phase |
+| [doctor](docs/assets/shot-doctor.png) | [correlate](docs/assets/shot-correlate.png) |
+| **omen doctor --runtime**: graph + governance checks | **a full run**: k6 + SigNoz correlated, every step on the ledger |
+
 ## What it does
 
 - **Diff or intent driven.** Reads the changed endpoints from a git diff, or scores an OpenAPI spec against a plain-language intent.
