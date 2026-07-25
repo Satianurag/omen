@@ -1,0 +1,115 @@
+{
+  "title": "omen overview",
+  "description": "omen run verdicts and agent state-machine walk from official OTel spans (omen.run / omen.step.*). Import via scripts/setup_dashboard.py or SigNoz UI → Import JSON.",
+  "version": "v5",
+  "tags": ["omen", "opentelemetry"],
+  "layout": [
+    {"h": 4, "i": "w-verdict", "w": 4, "x": 0, "y": 0, "moved": false, "static": false},
+    {"h": 4, "i": "w-reco", "w": 8, "x": 4, "y": 0, "moved": false, "static": false},
+    {"h": 8, "i": "w-reading", "w": 12, "x": 0, "y": 4, "moved": false, "static": false},
+    {"h": 8, "i": "w-walk", "w": 12, "x": 0, "y": 12, "moved": false, "static": false},
+    {"h": 6, "i": "w-runs", "w": 6, "x": 0, "y": 20, "moved": false, "static": false},
+    {"h": 6, "i": "w-verdicts", "w": 6, "x": 6, "y": 20, "moved": false, "static": false}
+  ],
+  "panelMap": {},
+  "widgets": [
+    {
+      "id": "w-verdict",
+      "title": "latest verdict",
+      "description": "Most recent omen.run span",
+      "panelTypes": "value",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "",
+            "disabled": false,
+            "query": "SELECT attributes_string['omen.verdict'] AS value FROM signoz_traces.distributed_signoz_index_v3 WHERE name = 'omen.run' AND timestamp BETWEEN $start_datetime AND $end_datetime AND ts_bucket_start BETWEEN $start_timestamp - 1800 AND $end_timestamp ORDER BY timestamp DESC LIMIT 1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "w-reco",
+      "title": "recommendation",
+      "panelTypes": "value",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "",
+            "disabled": false,
+            "query": "SELECT attributes_string['omen.recommendation'] AS value FROM signoz_traces.distributed_signoz_index_v3 WHERE name = 'omen.run' AND timestamp BETWEEN $start_datetime AND $end_datetime AND ts_bucket_start BETWEEN $start_timestamp - 1800 AND $end_timestamp ORDER BY timestamp DESC LIMIT 1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "w-reading",
+      "title": "the reading (latest runs)",
+      "description": "Client k6 metrics joined to SigNoz correlate fields on each omen.run span",
+      "panelTypes": "table",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "",
+            "disabled": false,
+            "query": "SELECT timestamp, attributes_string['omen.verdict'] AS verdict, attributes_string['omen.worst_path'] AS endpoint, attributes_string['omen.k6_p95_ms'] AS client_p95_ms, attributes_string['omen.k6_failed_pct'] AS client_failed_pct, attributes_string['omen.srv_p95_ms'] AS server_p95_ms, attributes_string['omen.srv_5xx'] AS server_5xx, attributes_string['omen.root_cause'] AS root_cause, attributes_string['omen.forecast_p95_ms'] AS forecast_p95_ms FROM signoz_traces.distributed_signoz_index_v3 WHERE name = 'omen.run' AND timestamp BETWEEN $start_datetime AND $end_datetime AND ts_bucket_start BETWEEN $start_timestamp - 1800 AND $end_timestamp ORDER BY timestamp DESC LIMIT 10"
+          }
+        ]
+      }
+    },
+    {
+      "id": "w-walk",
+      "title": "the agent's walk — Burr state machine, latest run",
+      "panelTypes": "table",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "",
+            "disabled": false,
+            "query": "WITH latest AS (SELECT trace_id FROM signoz_traces.distributed_signoz_index_v3 WHERE name = 'omen.run' AND timestamp BETWEEN $start_datetime AND $end_datetime AND ts_bucket_start BETWEEN $start_timestamp - 1800 AND $end_timestamp ORDER BY timestamp DESC LIMIT 1) SELECT attributes_string['omen.seq'] AS seq, attributes_string['omen.card'] AS card, attributes_string['omen.phase'] AS phase, attributes_string['omen.status'] AS status, attributes_string['omen.tool_calls'] AS calls, attributes_string['omen.tools'] AS tools FROM signoz_traces.distributed_signoz_index_v3 WHERE trace_id GLOBAL IN (SELECT trace_id FROM latest) AND name LIKE 'omen.step.%' AND timestamp BETWEEN $start_datetime AND $end_datetime AND ts_bucket_start BETWEEN $start_timestamp - 1800 AND $end_timestamp ORDER BY toUInt64OrZero(attributes_string['omen.seq']) ASC"
+          }
+        ]
+      }
+    },
+    {
+      "id": "w-runs",
+      "title": "omen runs over time",
+      "panelTypes": "graph",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "runs",
+            "disabled": false,
+            "query": "SELECT toStartOfInterval(timestamp, INTERVAL 1 HOUR) AS ts, count() AS value FROM signoz_traces.distributed_signoz_index_v3 WHERE name = 'omen.run' AND timestamp BETWEEN $start_datetime AND $end_datetime AND ts_bucket_start BETWEEN $start_timestamp - 1800 AND $end_timestamp GROUP BY ts ORDER BY ts ASC"
+          }
+        ]
+      }
+    },
+    {
+      "id": "w-verdicts",
+      "title": "verdict distribution",
+      "panelTypes": "pie",
+      "query": {
+        "queryType": "clickhouse_sql",
+        "clickhouse_sql": [
+          {
+            "name": "A",
+            "legend": "",
+            "disabled": false,
+            "query": "SELECT attributes_string['omen.verdict'] AS verdict, count() AS value FROM signoz_traces.distributed_signoz_index_v3 WHERE name = 'omen.run' AND timestamp BETWEEN $start_datetime AND $end_datetime AND ts_bucket_start BETWEEN $start_timestamp - 1800 AND $end_timestamp GROUP BY verdict ORDER BY value DESC"
+          }
+        ]
+      }
+    }
+  ]
+}

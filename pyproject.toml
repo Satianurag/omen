@@ -1,0 +1,45 @@
+[project]
+name = "omen"
+version = "0.1.0"
+description = "An AI agent that load-tests a code change, finds the regression in live SigNoz traces, and writes the fix."
+authors = [
+    { name = "Adam Munawar Rahman", email = "msrahmanadam@gmail.com" }
+]
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = [
+    "claude-agent-sdk>=0.2.101",
+    "google-genai>=1.33.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.13.4",
+    "python-dotenv>=1.2.2",
+    "structlog>=26.1.0",
+    "opentelemetry-distro[otlp]>=0.48b0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0",
+    "theodosia>=0.4.2",
+]
+
+[project.scripts]
+omen = "omen.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+extend-select = ["I", "UP", "FURB", "B", "SIM"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
