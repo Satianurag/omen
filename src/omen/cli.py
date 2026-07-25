@@ -8,6 +8,7 @@ rest come from theodosia. Sessions are stored under ``~/.omen``.
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import subprocess
 import time
@@ -178,13 +179,17 @@ def main() -> int:
         intent: str = typer.Option("", help="natural-language intent (intent mode)"),
         target_base_url: str = typer.Option("http://localhost:8000", help="target service base URL"),
         signoz_service: str = typer.Option("petclinic", help="OTEL_SERVICE_NAME of the target in SigNoz"),
-        model: str = typer.Option("", help="Ollama model tag (default: OMEN_MODEL / granite4.1:8b)"),
+        model: str = typer.Option(
+            "",
+            help="Ollama model tag for the Granite driver only (ignored when OMEN_LLM is not ollama)",
+        ),
     ) -> None:
-        """Let the local Granite model drive the FSM step by step (not Burr's executor).
+        """Drive the FSM step by step; the driver depends on ``OMEN_LLM``.
 
-        Granite reads the reachable actions and calls `step` for each phase itself, doing the
-        per-phase work as it goes; the `screen` phase hands off to Granite Guardian. Driver,
-        writer, and auditor are all local.
+        When ``OMEN_LLM`` is ``ollama`` (or unset), a local Granite model drives the FSM via
+        ``drive_granite``: it reads reachable actions and calls ``step`` each turn. For all other
+        backends (``gemini``, ``anthropic``, ``claude_agent``), the same governed FSM is walked
+        with Burr's executor and the configured model authors, correlates, analyses and screens.
         """
         repo = str(Path(repo_path).resolve()) if repo_path else ""
         inputs = {"target_base_url": target_base_url, "signoz_service": signoz_service}
@@ -196,7 +201,7 @@ def main() -> int:
             inputs["ref"] = ref
         task = "Drive the omen workflow to completion, one phase per turn, until it reaches report."
 
-        async def on_step(action: str, payload: dict) -> None:
+        def _render(action: str, payload: dict) -> None:
             num, card, _ = arcana.ARCANA.get(action, ("", action, ""))
             st = payload.get("state") or {}
             if payload.get("error"):
@@ -229,6 +234,62 @@ def main() -> int:
                 f"{_BOLD}{_MAGENTA}{card:<19}{_RESET}{_DIM}{action:<18}{_RESET}"
                 f"{_DIM}→{_RESET} {col}{status:<11}{_RESET} {detail}"
             )
+
+        async def on_step(action: str, payload: dict) -> None:
+            _render(action, payload)
+
+        backend = os.environ.get("OMEN_LLM", "ollama").strip().lower()
+        if backend != "ollama":
+            # No local Granite driver configured: walk the same governed FSM with Burr's
+            # executor and stream the identical per-phase reading. The configured model
+            # still authors the script, correlates, analyses and screens.
+            from burr.lifecycle import PostRunStepHook
+
+            walked = 0
+
+            class _Narrator(PostRunStepHook):
+                def post_run_step(self, *, state, action, **_kw) -> None:
+                    nonlocal walked
+                    walked += 1
+                    st = dict(state.get_all()) if hasattr(state, "get_all") else dict(state)
+                    _render(action.name, {"state": st})
+
+            who = os.environ.get("OMEN_MODEL", backend).split("-")[0].capitalize()
+            print(
+                f"\n{_BOLD}{_MAGENTA}{arcana.SIGIL}  {who} is reading.{_RESET} "
+                f"{_CYAN}{arcana.TAGLINE}{_RESET}\n"
+            )
+
+            async def _walk():
+                servers: dict = {"k6": k6_upstream_config()}
+                sz = signoz_upstream_config()
+                if sz is not None:
+                    servers["signoz"] = sz
+                mgr = UpstreamManager(servers)
+                token = bind_upstream(mgr)
+                try:
+                    _, _, st = await build_application(hooks=[_Narrator()]).arun(
+                        halt_after=["report"], inputs=inputs
+                    )
+                    return st
+                finally:
+                    await mgr.aclose()
+                    reset_upstream(token)
+
+            state = asyncio.run(_walk())
+            report = (state or {}).get("report") or {}
+            print(f"\n{_DIM}{arcana.SIGIL}  stopped on terminal, {walked} phases driven by {who}{_RESET}")
+            verdict = report.get("verdict")
+            if verdict:
+                print(f"{arcana.SIGIL}  {_BOLD}verdict:{_RESET} {_outcome_color(verdict)}{verdict}{_RESET}")
+            if report.get("remediation"):
+                print(
+                    f"\n{_BOLD}{arcana.SIGIL}  proposed fix{_RESET} "
+                    f"{_DIM}(validated diff: applies cleanly and still parses; "
+                    f"review before merging){_RESET}"
+                )
+                print(_color_diff(report["remediation"]))
+            return
 
         server = mount(build_application, name="omen", upstream=upstream())
         print(
