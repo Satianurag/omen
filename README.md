@@ -24,7 +24,7 @@ are refused, and every step and refusal lands on a hash-chained ledger. Named fo
 foresaw what others would not believe; the workflow is themed as a tarot draw, one Major Arcana
 card per phase (`omen arcana` lays out the spread).
 
-Built for [Agents of SigNoz](https://www.wemakedevs.org/hackathons/signoz) (Track 01 · AI & Agent Observability). Setup: [`docs/SIGNOZ_SETUP.md`](docs/SIGNOZ_SETUP.md).
+Built for [Agents of SigNoz](https://www.wemakedevs.org/hackathons/signoz) (Track 01 · AI & Agent Observability). Setup: [`docs/SIGNOZ_SETUP.md`](docs/SIGNOZ_SETUP.md). Writeup: [Dev.to blog](https://dev.to/anurag_sati_5b77a6578f780/my-k6-run-said-70-failed-signoz-told-me-why-then-my-agent-wrote-the-fix-18b9).
 
 ### Screenshots
 

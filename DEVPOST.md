@@ -58,6 +58,7 @@ Record a fresh cast with `./scripts/record_demo_cast.sh` (outputs `docs/assets/o
 
 ## Links
 
-- Repo: *(add your GitHub URL before submit)*
+- Repo: [github.com/Satianurag/omen](https://github.com/Satianurag/omen)
+- Blog: [My k6 run said 70% failed. SigNoz told me why — then my agent wrote the fix](https://dev.to/anurag_sati_5b77a6578f780/my-k6-run-said-70-failed-signoz-told-me-why-then-my-agent-wrote-the-fix-18b9)
 - SigNoz dashboard: `http://localhost:8080` (self-hosted)
 - Hackathon: [Agents of SigNoz](https://www.wemakedevs.org/hackathons/signoz)
