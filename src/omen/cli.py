@@ -8,6 +8,7 @@ rest come from theodosia. Sessions are stored under ``~/.omen``.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -240,58 +241,76 @@ def main() -> int:
 
         backend = os.environ.get("OMEN_LLM", "ollama").strip().lower()
         if backend != "ollama":
-            # No local Granite driver configured: walk the same governed FSM with Burr's
-            # executor and stream the identical per-phase reading. The configured model
-            # still authors the script, correlates, analyses and screens.
-            from burr.lifecycle import PostRunStepHook
+            # No local Granite driver configured: walk the same governed FSM through the same
+            # mounted MCP server, choosing each next action deterministically instead of asking
+            # a model to choose it. Same `step` control surface, same refusals, same sealed
+            # ledger as the Granite path; the configured model still authors the script,
+            # correlates, analyses and screens inside every phase.
+            from fastmcp import Client
 
-            walked = 0
-
-            class _Narrator(PostRunStepHook):
-                def post_run_step(self, *, state, action, **_kw) -> None:
-                    nonlocal walked
-                    walked += 1
-                    st = dict(state.get_all()) if hasattr(state, "get_all") else dict(state)
-                    _render(action.name, {"state": st})
+            from omen.pilot import _reachable, _resource
 
             who = os.environ.get("OMEN_MODEL", backend).split("-")[0].capitalize()
+            server = mount(build_application, name="omen", upstream=upstream())
             print(
                 f"\n{_BOLD}{_MAGENTA}{arcana.SIGIL}  {who} is reading.{_RESET} "
                 f"{_CYAN}{arcana.TAGLINE}{_RESET}\n"
             )
 
-            async def _walk():
-                servers: dict = {"k6": k6_upstream_config()}
-                sz = signoz_upstream_config()
-                if sz is not None:
-                    servers["signoz"] = sz
-                mgr = UpstreamManager(servers)
-                token = bind_upstream(mgr)
-                try:
-                    _, _, st = await build_application(hooks=[_Narrator()]).arun(
-                        halt_after=["report"], inputs=inputs
-                    )
-                    return st
-                finally:
-                    await mgr.aclose()
-                    reset_upstream(token)
+            async def _walk() -> tuple[dict, int, str]:
+                walked = 0
+                stopped_on = "cap"
+                state: dict = {}
+                async with Client(server) as client:
+                    r = await client.call_tool("step", {"action": "select_mode", "inputs": inputs})
+                    payload = r.structured_content or {"content": str(r.content)}
+                    walked += 1
+                    await on_step("select_mode", payload)
+                    for _ in range(40):
+                        reachable = _reachable(await _resource(client, "theodosia://next"))
+                        if not reachable:
+                            stopped_on = "terminal"
+                            break
+                        action = reachable[0]
+                        try:
+                            r = await client.call_tool("step", {"action": action})
+                            payload = r.structured_content or {"content": str(r.content)}
+                        except Exception as exc:
+                            payload = {"error": "tool_invocation_failed", "detail": str(exc)}
+                        walked += 1
+                        await on_step(action, payload)
+                        if payload.get("error"):
+                            stopped_on = "refused"
+                            break
+                    raw = await _resource(client, "theodosia://state")
+                    try:
+                        parsed = json.loads(raw)
+                    except json.JSONDecodeError:
+                        parsed = {}
+                    state = parsed if isinstance(parsed, dict) else {}
+                return state, walked, stopped_on
 
-            state = asyncio.run(_walk())
-            report = (state or {}).get("report") or {}
+            state, walked, stopped_on = asyncio.run(_walk())
+            report = state.get("report") or {}
             print(
-                f"\n{_DIM}{arcana.SIGIL}  stopped on terminal, {walked} phases walked by Burr, "
-                f"authored by {who}{_RESET}"
+                f"\n{_DIM}{arcana.SIGIL}  stopped on {stopped_on}, {walked} phases stepped "
+                f"over MCP, authored by {who}{_RESET}"
             )
-            verdict = report.get("verdict")
+            verdict = report.get("verdict") if isinstance(report, dict) else None
             if verdict:
                 print(f"{arcana.SIGIL}  {_BOLD}verdict:{_RESET} {_outcome_color(verdict)}{verdict}{_RESET}")
-            if report.get("remediation"):
+            remediation = report.get("remediation") if isinstance(report, dict) else None
+            if remediation:
                 print(
                     f"\n{_BOLD}{arcana.SIGIL}  proposed fix{_RESET} "
                     f"{_DIM}(validated diff: applies cleanly and still parses; "
                     f"review before merging){_RESET}"
                 )
-                print(_color_diff(report["remediation"]))
+                print(_color_diff(remediation))
+            narration = report.get("narration") if isinstance(report, dict) else None
+            if narration:
+                print(f"\n{_DIM}{arcana.SIGIL}  the reading (model narration):{_RESET}")
+                print(narration)
             return
 
         server = mount(build_application, name="omen", upstream=upstream())
